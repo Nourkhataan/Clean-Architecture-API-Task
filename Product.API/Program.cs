@@ -1,9 +1,11 @@
 
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.EntityFrameworkCore;
+using Products.Application;
 using Products.Application.Interfaces;
 using Products.Infrastructure.Persistence;
 using Products.Infrastructure.Repositories;
-using Products.Application;
+using Serilog;
 
 namespace Product.API
 {
@@ -12,6 +14,9 @@ namespace Product.API
         public static void Main(string[] args)
         {
             var builder = WebApplication.CreateBuilder(args);
+
+            builder.Host.UseSerilog((context, configuration) =>
+                configuration.ReadFrom.Configuration(context.Configuration));
 
             builder.Services.AddApplication();
             builder.Services.AddDbContext<AppDbContext>(options =>
@@ -35,6 +40,38 @@ namespace Product.API
                 app.UseSwagger();
                 app.UseSwaggerUI();
             }
+
+            app.UseExceptionHandler(errorApp =>
+            {
+                errorApp.Run(async context =>
+                {
+                    var exceptionFeature =
+                        context.Features.Get<IExceptionHandlerFeature>();
+
+                    var exception = exceptionFeature?.Error;
+
+                    var logger = context.RequestServices
+                        .GetRequiredService<ILogger<Program>>();
+
+                    if (exception is not null)
+                    {
+                        logger.LogError(
+                            exception,
+                            "Unhandled exception occurred while processing {Method} {Path}",
+                            context.Request.Method,
+                            context.Request.Path);
+                    }
+
+                    context.Response.StatusCode =
+                        StatusCodes.Status500InternalServerError;
+
+                    await context.Response.WriteAsJsonAsync(new
+                    {
+                        message = "An unexpected error occurred."
+                    });
+                });
+            });
+
 
             app.UseHttpsRedirection();
 
